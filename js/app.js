@@ -137,7 +137,6 @@ function renderProducts(products) {
       <img src="${firstImage}" alt="${product.nombre}" loading="lazy">
       <div class="card-content">
         <h3>${product.nombre}</h3>
-        <div class="price">$${product.precio}</div>
       </div>
     `;
 
@@ -151,10 +150,6 @@ function renderProducts(products) {
    MODAL
 ========================= */
 
-let currentImages = [];
-let currentIndex = 0;
-let startX = 0;
-
 function openModal(product) {
 
   const modal = document.getElementById("productModal");
@@ -166,42 +161,6 @@ function openModal(product) {
     .filter(url => url !== "");
 
   currentIndex = 0;
-
-  let precioBase = product.precio;
-  let precioInicial = precioBase;
-  let nombreMedidaInicial = "";
-
-  /* ===== CONSTRUIR SELECTOR DE MEDIDAS ===== */
-
-  let selectorMedidasHTML = "";
-
-  if (product.medidas && product.medidas !== "") {
-
-    const medidasArray = product.medidas.split("|");
-
-    const opciones = medidasArray.map((m, index) => {
-
-      const partes = m.split(":");
-      const nombre = partes[0]?.trim();
-      const precio = parseFloat(partes[1]);
-
-      if (index === 0) {
-        precioInicial = precio;
-        nombreMedidaInicial = nombre;
-      }
-
-      return `<option data-nombre="${nombre}" value="${precio}">${nombre}</option>`;
-    }).join("");
-
-    selectorMedidasHTML = `
-      <div style="margin-bottom:15px;">
-        <label><strong>Medida:</strong></label>
-        <select id="sizeSelect" style="width:100%;padding:8px;border-radius:6px;margin-top:5px;">
-          ${opciones}
-        </select>
-      </div>
-    `;
-  }
 
   body.innerHTML = `
 <span class="close" onclick="closeModal()">✕</span>
@@ -236,51 +195,12 @@ function openModal(product) {
       <p>${product.caracteristicas}</p>
   </div>
 
-  <div class="price-box">
-      <h4>Precios</h4>
-      ${selectorMedidasHTML}
-
-      <div class="price-tier">
-          <span>Precio unitario:</span>
-          <strong id="precioUnitario">$${precioInicial}</strong>
-      </div>
-
-      <div class="price-tier">
-          <span>Hasta 3 unidades:</span>
-          <strong id="precioHasta3">$${Math.floor(precioInicial * 0.88)}</strong>
-      </div>
-
-      <div class="price-tier">
-          <span>Más de 5 unidades:</span>
-          <strong id="precioMas5">$${Math.floor(precioInicial * 0.78)}</strong>
-      </div>
-  </div>
-
-  <div class="buy-options">
-      <h3 class="buy-title">Canales de compra aqui</h3>
-      <div class="buy-buttons">
-
-          <button class="buy-btn whatsapp" id="btnComprar">
-             Comprar por WhatsApp
-          </button>
-
-          <a class="buy-btn instagram"
-             target="_blank"
-             href="https://www.instagram.com/competenciaargentina/">
-             Instagram
-          </a>
-
-          <a class="buy-btn facebook"
-             target="_blank"
-             href="https://www.facebook.com/profile.php?id=61588363227913">
-             Facebook
-          </a>
-
-      </div>
-  </div>
-
 </div>
 `;
+
+  modal.style.display = "flex";
+  enableSwipe();
+}
 
   /* ===== ACTUALIZAR PRECIO DINÁMICO ===== */
 
@@ -296,48 +216,6 @@ function openModal(product) {
       document.getElementById("precioMas5").textContent = "$" + Math.floor(nuevoPrecio * 0.78);
     });
   }
-
-  /* ===== BOTÓN COMPRAR CON POPUP DE CANTIDAD ===== */
-
-  document.getElementById("btnComprar").addEventListener("click", function () {
-
-    const cantidad = parseInt(prompt("¿Cuántas unidades querés comprar?"));
-
-    if (!cantidad || cantidad <= 0) return;
-
-    let precioActual = precioInicial;
-    let nombreMedida = nombreMedidaInicial;
-
-    if (sizeSelect) {
-      const selectedOption = sizeSelect.options[sizeSelect.selectedIndex];
-      precioActual = parseFloat(selectedOption.value);
-      nombreMedida = selectedOption.getAttribute("data-nombre");
-    }
-
-    let precioFinal = precioActual;
-
-    if (cantidad <= 3) {
-      precioFinal = Math.floor(precioActual * 0.88);
-    } else if (cantidad > 5) {
-      precioFinal = Math.floor(precioActual * 0.78);
-    }
-
-    const total = precioFinal * cantidad;
-
-    const mensaje = `
-Hola, quiero comprar ${product.nombre}
-Medida: ${nombreMedida}
-Cantidad: ${cantidad}
-`;
-
-    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`;
-
-    window.open(url, "_blank");
-  });
-
-  modal.style.display = "flex";
-  enableSwipe();
-}
 
 function updateGallery() {
   const img = document.getElementById("modalImage");
@@ -429,7 +307,6 @@ const destacados = allProducts.filter(
       <img src="${firstImage}">
       <div class="featured-info">
         <h3>${product.nombre}</h3>
-        <span>$${product.precio}</span>
       </div>
     `;
 
