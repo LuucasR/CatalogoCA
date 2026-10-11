@@ -1,7 +1,20 @@
+/* =========================
+   CONFIGURACIÓN
+   Único bloque que cambia entre CompetenciaArgentina y CatalogoCA
+========================= */
+
+const MOSTRAR_PRECIOS = false;
+const CART_STORAGE_KEY = "ca_catalogo_cart";
+const ERROR_PAGE = null; // null: muestra el error en la misma página
+
+let allProducts = [];
+
+const PRODUCTS_PER_PAGE = 12;
+let currentPage = 1;
+
 const SHEET_URL = "https://opensheet.elk.sh/1E9CVyFR-O3GbF9ITdN5M4SJo48q4U7kh3-ypAL9ss78/Sheet1";
 const WHATSAPP_NUMBER = "541169233139";
 
-let allProducts = [];
 
 /* =========================
    INIT
@@ -11,6 +24,10 @@ document.addEventListener("DOMContentLoaded", () => {
   loadCart();
   renderCart();
   fetchProducts();
+
+  if (new URLSearchParams(window.location.search).has("carrito")) {
+    openCart();
+  }
 });
 
 document.addEventListener("keydown", (event) => {
@@ -19,6 +36,20 @@ document.addEventListener("keydown", (event) => {
     closeCart();
   }
 });
+
+/* =========================
+   PRECIOS
+========================= */
+
+function precioConDescuento(precioBase, cantidad) {
+  if (cantidad >= 5) return Math.floor(precioBase * 0.78);
+  if (cantidad >= 3) return Math.floor(precioBase * 0.88);
+  return precioBase;
+}
+
+function formatPrecio(n) {
+  return "$" + Number(n).toLocaleString("es-AR");
+}
 
 /* =========================
    FETCH PRODUCTS (JSON)
@@ -44,11 +75,18 @@ allProducts = data.map((row) => ({
 }));
 
     populateLineaFilter();
-    renderProducts(allProducts);
-    renderFeaturedProducts();
+    renderProducts(allProducts, currentPage);
+renderPagination(allProducts);
+    renderFeaturedProducts(); 
   } catch (error) {
     console.error("Error cargando productos:", error);
-  }
+    if (ERROR_PAGE) {
+      window.location.href = ERROR_PAGE;
+    } else {
+      document.getElementById("productGrid").innerHTML =
+        "<p>No fue posible obtener los productos. Intente nuevamente más tarde.</p>";
+    }
+}
 }
 
 /* =========================
@@ -121,18 +159,25 @@ function applyFilters() {
     filtered = filtered.filter((p) => p.categoria === categoriaValue);
   }
 
-  renderProducts(filtered);
+currentPage = 1;
+renderProducts(filtered, currentPage);
+renderPagination(filtered);
 }
 
 /* =========================
    RENDER PRODUCTOS
 ========================= */
 
-function renderProducts(products) {
-  const grid = document.getElementById("productGrid");
+function renderProducts(products, page = 1) {
+    const grid = document.getElementById("productGrid");
   grid.innerHTML = "";
 
-  products.forEach((product) => {
+  const start = (page - 1) * PRODUCTS_PER_PAGE;
+  const end = start + PRODUCTS_PER_PAGE;
+
+  const pageProducts = products.slice(start, end);
+
+  pageProducts.forEach((product) => {
 
     // 👇 Tomamos SOLO la primera imagen
     const firstImage = product.imagen
@@ -146,6 +191,7 @@ function renderProducts(products) {
       <img src="${firstImage}" alt="${product.nombre}" loading="lazy">
       <div class="card-content">
         <h3>${product.nombre}</h3>
+        ${MOSTRAR_PRECIOS ? `<div class="price">${formatPrecio(product.precio)}</div>` : ""}
       </div>
     `;
 
@@ -175,17 +221,31 @@ function openModal(product) {
 
   currentIndex = 0;
 
-  /* =========================
-     SELECTOR MEDIDAS (sin precios)
-  ========================= */
+  let precioInicial = product.precio;
+  let nombreMedidaInicial = "Única";
 
   let selectorMedidasHTML = "";
 
+  /* =========================
+     SELECTOR MEDIDAS
+  ========================= */
+
   if (product.medidas && product.medidas !== "") {
 
-    const opciones = product.medidas.split("|").map((m) => {
-      const nombre = m.split(":")[0]?.trim();
-      return `<option value="${nombre}">${nombre}</option>`;
+    const medidasArray = product.medidas.split("|");
+
+    const opciones = medidasArray.map((m, index) => {
+
+      const partes = m.split(":");
+      const nombre = partes[0]?.trim();
+      const precio = parseFloat(partes[1]);
+
+      if (index === 0) {
+        precioInicial = precio;
+        nombreMedidaInicial = nombre;
+      }
+
+      return `<option data-nombre="${nombre}" value="${precio}">${nombre}</option>`;
     }).join("");
 
     selectorMedidasHTML = `
@@ -198,20 +258,38 @@ function openModal(product) {
     `;
   }
 
+  /* =========================
+     SELECTOR CANTIDAD
+  ========================= */
+
+  const cantidadHTML = `
+    <div style="margin-bottom:15px;">
+      <label><strong>Cantidad:</strong></label>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:5px;">
+        <button id="menosBtn" type="button">-</button>
+        <span id="cantidadValor">1</span>
+        <button id="masBtn" type="button">+</button>
+      </div>
+    </div>
+  `;
+
   body.innerHTML = `
-<span class="close" onclick="closeModal()">✕</span>
+<button class="modal-close" onclick="closeModal()">
+  <span></span>
+  <span></span>
+</button>
 
 <div class="modal-left">
   <div class="modal-gallery">
     <button class="nav-btn left" onclick="prevImage()">‹</button>
-    <img id="modalImage" src="${currentImages[0] || ""}" onclick="toggleZoom(this)"/>
+    <img id="modalImage" src="${currentImages[0]}" onclick="toggleZoom(this)"/>
     <button class="nav-btn right" onclick="nextImage()">›</button>
   </div>
 
   <div class="thumbnails">
     ${currentImages.map((img, i) => `
-      <img src="${img}"
-           class="thumb ${i === 0 ? "active-thumb" : ""}"
+      <img src="${img}" 
+           class="thumb ${i === 0 ? "active-thumb" : ""}" 
            onclick="goToImage(${i})">
     `).join("")}
   </div>
@@ -232,25 +310,41 @@ function openModal(product) {
   </div>
 
   <div class="price-box">
-      <h4>Pedido</h4>
+      <h4>${MOSTRAR_PRECIOS ? "Precios" : "Pedido"}</h4>
       ${selectorMedidasHTML}
-      <div style="margin-bottom:15px;">
-        <label><strong>Cantidad:</strong></label>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:5px;">
-          <button id="menosBtn" type="button">-</button>
-          <span id="cantidadValor">1</span>
-          <button id="masBtn" type="button">+</button>
-        </div>
+      ${cantidadHTML}
+      ${MOSTRAR_PRECIOS ? `
+
+      <div class="price-tier">
+          <span>Precio unitario:</span>
+          <strong id="precioUnitario">${formatPrecio(precioInicial)}</strong>
       </div>
+
+      <div class="price-tier">
+          <span>3 a 4 unidades (c/u):</span>
+          <strong id="precioHasta3">${formatPrecio(precioConDescuento(precioInicial, 3))}</strong>
+      </div>
+
+      <div class="price-tier">
+          <span>5 o más unidades (c/u):</span>
+          <strong id="precioMas5">${formatPrecio(precioConDescuento(precioInicial, 5))}</strong>
+      </div>
+
+      <div class="price-tier price-subtotal">
+          <span>Subtotal:</span>
+          <strong id="precioSubtotal">${formatPrecio(precioInicial)}</strong>
+      </div>
+      ` : ""}
   </div>
 
   <div class="buy-options">
+      <h3 class="buy-title">Canales de compra aqui</h3>
       <div class="buy-buttons">
           <button class="buy-btn cart" id="btnAgregarCarrito">
              🛒 Agregar al carrito
           </button>
-          <button class="buy-btn whatsapp" id="btnConsultar">
-             Consultar ahora por WhatsApp
+          <button class="buy-btn whatsapp" id="btnComprar">
+             ${MOSTRAR_PRECIOS ? "Comprar" : "Consultar"} ahora por WhatsApp
           </button>
       </div>
   </div>
@@ -264,29 +358,74 @@ function openModal(product) {
 
   const sizeSelect = document.getElementById("sizeSelect");
   const cantidadSpan = document.getElementById("cantidadValor");
+  const btnMas = document.getElementById("masBtn");
+  const btnMenos = document.getElementById("menosBtn");
+
   let cantidad = 1;
 
-  function obtenerMedida() {
-    return sizeSelect ? sizeSelect.value : "Única";
+  function calcularPrecioBase() {
+    if (sizeSelect) {
+      return parseFloat(sizeSelect.value);
+    }
+    return precioInicial;
   }
 
-  document.getElementById("masBtn").addEventListener("click", () => {
+  function obtenerNombreMedida() {
+    if (sizeSelect) {
+      const selectedOption =
+        sizeSelect.options[sizeSelect.selectedIndex];
+      return selectedOption.getAttribute("data-nombre");
+    }
+    return nombreMedidaInicial;
+  }
+
+  function actualizarPrecios() {
+
+    if (!MOSTRAR_PRECIOS) return;
+
+    const precioBase = calcularPrecioBase();
+
+    document.getElementById("precioUnitario").textContent =
+      formatPrecio(precioBase);
+
+    document.getElementById("precioHasta3").textContent =
+      formatPrecio(precioConDescuento(precioBase, 3));
+
+    document.getElementById("precioMas5").textContent =
+      formatPrecio(precioConDescuento(precioBase, 5));
+
+    document.getElementById("precioSubtotal").textContent =
+      formatPrecio(precioConDescuento(precioBase, cantidad) * cantidad);
+  }
+
+  if (sizeSelect) {
+    sizeSelect.addEventListener("change", actualizarPrecios);
+  }
+
+  btnMas.addEventListener("click", () => {
     cantidad++;
     cantidadSpan.textContent = cantidad;
+    actualizarPrecios();
   });
 
-  document.getElementById("menosBtn").addEventListener("click", () => {
+  btnMenos.addEventListener("click", () => {
     if (cantidad > 1) {
       cantidad--;
       cantidadSpan.textContent = cantidad;
+      actualizarPrecios();
     }
   });
+
+  /* =========================
+     BOTÓN CARRITO
+  ========================= */
 
   document.getElementById("btnAgregarCarrito").addEventListener("click", () => {
     addToCart({
       id: product.id,
       nombre: product.nombre,
-      medida: obtenerMedida(),
+      medida: obtenerNombreMedida(),
+      precioBase: calcularPrecioBase(),
       imagen: currentImages[0] || "",
       cantidad: cantidad
     });
@@ -295,10 +434,26 @@ function openModal(product) {
     openCart();
   });
 
-  document.getElementById("btnConsultar").addEventListener("click", () => {
-    const mensaje = `
+  /* =========================
+     BOTÓN WHATSAPP
+  ========================= */
+
+  document.getElementById("btnComprar").addEventListener("click", function () {
+
+    const precioBase = calcularPrecioBase();
+    const nombreMedida = obtenerNombreMedida();
+    const total = precioConDescuento(precioBase, cantidad) * cantidad;
+
+    const mensaje = MOSTRAR_PRECIOS
+      ? `
+Hola, quiero comprar ${product.nombre}
+Medida: ${nombreMedida}
+Cantidad: ${cantidad}
+Total estimado: ${formatPrecio(total)}
+`
+      : `
 Hola, quiero consultar por ${product.nombre}
-Medida: ${obtenerMedida()}
+Medida: ${nombreMedida}
 Cantidad: ${cantidad}
 `;
 
@@ -405,6 +560,7 @@ const destacados = allProducts.filter(
       <img src="${firstImage}" alt="${product.nombre}">
       <div class="featured-info">
         <h3>${product.nombre}</h3>
+        ${MOSTRAR_PRECIOS ? `<span>${formatPrecio(product.precio)}</span>` : ""}
       </div>
     `;
 
@@ -415,18 +571,54 @@ const destacados = allProducts.filter(
 
 function scrollFeatured(direction) {
   const track = document.getElementById("featuredProducts");
-  const scrollAmount = 320;
+  const scrollAmount = 320; 
   track.scrollBy({
     left: direction * scrollAmount,
     behavior: "smooth"
   });
 }
 
+function renderPagination(products) {
+
+    const totalPages = Math.ceil(products.length / PRODUCTS_PER_PAGE);
+
+    let pagination = document.getElementById("pagination");
+
+    if (!pagination) {
+        pagination = document.createElement("div");
+        pagination.id = "pagination";
+        pagination.className = "pagination";
+
+        document.querySelector(".container").appendChild(pagination);
+    }
+
+    pagination.innerHTML = "";
+
+    for (let i = 1; i <= totalPages; i++) {
+
+        const btn = document.createElement("button");
+
+        btn.textContent = i;
+
+        if (i === currentPage)
+            btn.classList.add("active");
+
+        btn.onclick = () => {
+            currentPage = i;
+            renderProducts(products, currentPage);
+            renderPagination(products);
+            document.querySelector(".titlecatalogo")
+                .scrollIntoView({ behavior: "smooth" });
+        };
+
+        pagination.appendChild(btn);
+    }
+}
+
 /* =========================
    CARRITO
 ========================= */
 
-const CART_STORAGE_KEY = "ca_catalogo_cart";
 let cart = [];
 
 function loadCart() {
@@ -492,6 +684,14 @@ function clearCart() {
   renderCart();
 }
 
+function cartItemSubtotal(item) {
+  return precioConDescuento(item.precioBase, item.cantidad) * item.cantidad;
+}
+
+function cartTotal() {
+  return cart.reduce((sum, item) => sum + cartItemSubtotal(item), 0);
+}
+
 function renderCart() {
   const itemsContainer = document.getElementById("cartItems");
   const badge = document.getElementById("cartBadge");
@@ -504,7 +704,9 @@ function renderCart() {
   const navCount = document.getElementById("navCartCount");
   if (navCount) navCount.textContent = unidades > 0 ? unidades : "";
 
-  document.getElementById("cartUnits").textContent = unidades;
+  // Sin precios, el pie del carrito muestra la cantidad de unidades
+  document.getElementById("cartTotal").textContent =
+    MOSTRAR_PRECIOS ? formatPrecio(cartTotal()) : unidades;
   document.getElementById("cartSend").disabled = cart.length === 0;
   document.getElementById("cartClear").disabled = cart.length === 0;
 
@@ -519,6 +721,7 @@ function renderCart() {
       <div class="cart-item-info">
         <h4>${item.nombre}</h4>
         <span class="cart-item-medida">Medida: ${item.medida}</span>
+        ${MOSTRAR_PRECIOS ? `<span class="cart-item-price">${formatPrecio(precioConDescuento(item.precioBase, item.cantidad))} c/u</span>` : ""}
         <div class="cart-item-qty">
           <button type="button" data-action="menos" data-index="${index}">-</button>
           <span>${item.cantidad}</span>
@@ -526,6 +729,7 @@ function renderCart() {
         </div>
       </div>
       <div class="cart-item-right">
+        ${MOSTRAR_PRECIOS ? `<strong>${formatPrecio(cartItemSubtotal(item))}</strong>` : ""}
         <button type="button" class="cart-item-remove" data-action="eliminar" data-index="${index}">Eliminar</button>
       </div>
     </div>
@@ -553,12 +757,20 @@ function closeCart() {
 function sendCartToWhatsApp() {
   if (cart.length === 0) return;
 
-  const lineas = cart.map((item, i) =>
-    `${i + 1}) ${item.nombre} – Medida: ${item.medida} – Cant: ${item.cantidad}`
-  );
+  const lineas = cart.map((item, i) => {
+    const linea = `${i + 1}) ${item.nombre} – Medida: ${item.medida} – Cant: ${item.cantidad}`;
+    if (!MOSTRAR_PRECIOS) return linea;
 
-  const mensaje =
-`Hola, quiero consultar por el siguiente pedido:
+    return linea + ` – ${formatPrecio(precioConDescuento(item.precioBase, item.cantidad))} c/u – ` +
+      `Subtotal ${formatPrecio(cartItemSubtotal(item))}`;
+  });
+
+  const mensaje = MOSTRAR_PRECIOS
+    ? `Hola, quiero hacer el siguiente pedido:
+${lineas.join("\n")}
+
+Total estimado: ${formatPrecio(cartTotal())}`
+    : `Hola, quiero consultar por el siguiente pedido:
 ${lineas.join("\n")}`;
 
   const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`;
