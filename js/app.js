@@ -8,7 +8,16 @@ let allProducts = [];
 ========================= */
 
 document.addEventListener("DOMContentLoaded", () => {
+  loadCart();
+  renderCart();
   fetchProducts();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeModal();
+    closeCart();
+  }
 });
 
 /* =========================
@@ -36,7 +45,7 @@ allProducts = data.map((row) => ({
 
     populateLineaFilter();
     renderProducts(allProducts);
-    renderFeaturedProducts(); 
+    renderFeaturedProducts();
   } catch (error) {
     console.error("Error cargando productos:", error);
   }
@@ -150,17 +159,44 @@ function renderProducts(products) {
    MODAL
 ========================= */
 
+let currentImages = [];
+let currentIndex = 0;
+let startX = 0;
+
 function openModal(product) {
 
   const modal = document.getElementById("productModal");
   const body = document.getElementById("modalBody");
 
-  currentImages = product.imagen
+  currentImages = (product.imagen || "")
     .split("|")
     .map(url => url.trim())
     .filter(url => url !== "");
 
   currentIndex = 0;
+
+  /* =========================
+     SELECTOR MEDIDAS (sin precios)
+  ========================= */
+
+  let selectorMedidasHTML = "";
+
+  if (product.medidas && product.medidas !== "") {
+
+    const opciones = product.medidas.split("|").map((m) => {
+      const nombre = m.split(":")[0]?.trim();
+      return `<option value="${nombre}">${nombre}</option>`;
+    }).join("");
+
+    selectorMedidasHTML = `
+      <div style="margin-bottom:15px;">
+        <label><strong>Medida:</strong></label>
+        <select id="sizeSelect" style="width:100%;padding:8px;border-radius:6px;margin-top:5px;">
+          ${opciones}
+        </select>
+      </div>
+    `;
+  }
 
   body.innerHTML = `
 <span class="close" onclick="closeModal()">✕</span>
@@ -168,14 +204,14 @@ function openModal(product) {
 <div class="modal-left">
   <div class="modal-gallery">
     <button class="nav-btn left" onclick="prevImage()">‹</button>
-    <img id="modalImage" src="${currentImages[0]}" onclick="toggleZoom(this)"/>
+    <img id="modalImage" src="${currentImages[0] || ""}" onclick="toggleZoom(this)"/>
     <button class="nav-btn right" onclick="nextImage()">›</button>
   </div>
 
   <div class="thumbnails">
     ${currentImages.map((img, i) => `
-      <img src="${img}" 
-           class="thumb ${i === 0 ? "active-thumb" : ""}" 
+      <img src="${img}"
+           class="thumb ${i === 0 ? "active-thumb" : ""}"
            onclick="goToImage(${i})">
     `).join("")}
   </div>
@@ -195,27 +231,86 @@ function openModal(product) {
       <p>${product.caracteristicas}</p>
   </div>
 
+  <div class="price-box">
+      <h4>Pedido</h4>
+      ${selectorMedidasHTML}
+      <div style="margin-bottom:15px;">
+        <label><strong>Cantidad:</strong></label>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:5px;">
+          <button id="menosBtn" type="button">-</button>
+          <span id="cantidadValor">1</span>
+          <button id="masBtn" type="button">+</button>
+        </div>
+      </div>
+  </div>
+
+  <div class="buy-options">
+      <div class="buy-buttons">
+          <button class="buy-btn cart" id="btnAgregarCarrito">
+             🛒 Agregar al carrito
+          </button>
+          <button class="buy-btn whatsapp" id="btnConsultar">
+             Consultar ahora por WhatsApp
+          </button>
+      </div>
+  </div>
+
 </div>
 `;
 
+  /* =========================
+     LÓGICA DINÁMICA
+  ========================= */
+
+  const sizeSelect = document.getElementById("sizeSelect");
+  const cantidadSpan = document.getElementById("cantidadValor");
+  let cantidad = 1;
+
+  function obtenerMedida() {
+    return sizeSelect ? sizeSelect.value : "Única";
+  }
+
+  document.getElementById("masBtn").addEventListener("click", () => {
+    cantidad++;
+    cantidadSpan.textContent = cantidad;
+  });
+
+  document.getElementById("menosBtn").addEventListener("click", () => {
+    if (cantidad > 1) {
+      cantidad--;
+      cantidadSpan.textContent = cantidad;
+    }
+  });
+
+  document.getElementById("btnAgregarCarrito").addEventListener("click", () => {
+    addToCart({
+      id: product.id,
+      nombre: product.nombre,
+      medida: obtenerMedida(),
+      imagen: currentImages[0] || "",
+      cantidad: cantidad
+    });
+
+    closeModal();
+    openCart();
+  });
+
+  document.getElementById("btnConsultar").addEventListener("click", () => {
+    const mensaje = `
+Hola, quiero consultar por ${product.nombre}
+Medida: ${obtenerMedida()}
+Cantidad: ${cantidad}
+`;
+
+    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`;
+
+    window.open(url, "_blank");
+  });
+
+  document.body.classList.add("modal-open");
   modal.style.display = "flex";
   enableSwipe();
 }
-
-  /* ===== ACTUALIZAR PRECIO DINÁMICO ===== */
-
-  const sizeSelect = document.getElementById("sizeSelect");
-
-  if (sizeSelect) {
-    sizeSelect.addEventListener("change", function () {
-
-      const nuevoPrecio = parseFloat(this.value);
-
-      document.getElementById("precioUnitario").textContent = "$" + nuevoPrecio;
-      document.getElementById("precioHasta3").textContent = "$" + Math.floor(nuevoPrecio * 0.88);
-      document.getElementById("precioMas5").textContent = "$" + Math.floor(nuevoPrecio * 0.78);
-    });
-  }
 
 function updateGallery() {
   const img = document.getElementById("modalImage");
@@ -269,12 +364,13 @@ function enableSwipe() {
 
 function closeModal() {
   document.getElementById("productModal").style.display = "none";
+  document.body.classList.remove("modal-open");
 }
 
 window.addEventListener("click", (event) => {
   const modal = document.getElementById("productModal");
   if (event.target === modal) {
-    modal.style.display = "none";
+    closeModal();
   }
 });
 
@@ -298,13 +394,15 @@ const destacados = allProducts.filter(
   container.innerHTML = "";
 
   destacados.forEach(product => {
-    const firstImage = product.imagen.split("|")[0].trim();
+    const firstImage = product.imagen
+      ? product.imagen.split("|")[0].trim()
+      : "";
 
     const card = document.createElement("div");
     card.className = "featured-card";
 
     card.innerHTML = `
-      <img src="${firstImage}">
+      <img src="${firstImage}" alt="${product.nombre}">
       <div class="featured-info">
         <h3>${product.nombre}</h3>
       </div>
@@ -317,9 +415,157 @@ const destacados = allProducts.filter(
 
 function scrollFeatured(direction) {
   const track = document.getElementById("featuredProducts");
-  const scrollAmount = 320; 
+  const scrollAmount = 320;
   track.scrollBy({
     left: direction * scrollAmount,
     behavior: "smooth"
   });
 }
+
+/* =========================
+   CARRITO
+========================= */
+
+const CART_STORAGE_KEY = "ca_catalogo_cart";
+let cart = [];
+
+function loadCart() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CART_STORAGE_KEY));
+    cart = Array.isArray(saved) ? saved : [];
+  } catch (error) {
+    cart = [];
+  }
+}
+
+function saveCart() {
+  try {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+  } catch (error) {
+    // Sin storage el carrito funciona igual, solo no persiste
+  }
+}
+
+function addToCart(item) {
+  const key = item.id + "|" + item.medida;
+  const existing = cart.find((i) => i.key === key);
+
+  if (existing) {
+    existing.cantidad += item.cantidad;
+  } else {
+    cart.push({ key, ...item });
+  }
+
+  saveCart();
+  renderCart();
+}
+
+function updateCartQty(index, delta) {
+  const item = cart[index];
+  if (!item) return;
+
+  item.cantidad += delta;
+  if (item.cantidad < 1) {
+    cart.splice(index, 1);
+  }
+
+  saveCart();
+  renderCart();
+}
+
+function removeFromCart(index) {
+  cart.splice(index, 1);
+  saveCart();
+  renderCart();
+}
+
+function clearCart() {
+  cart = [];
+  saveCart();
+  renderCart();
+}
+
+function renderCart() {
+  const itemsContainer = document.getElementById("cartItems");
+  const badge = document.getElementById("cartBadge");
+  if (!itemsContainer || !badge) return;
+
+  const unidades = cart.reduce((sum, item) => sum + item.cantidad, 0);
+  badge.textContent = unidades;
+  badge.style.display = unidades > 0 ? "flex" : "none";
+
+  const navCount = document.getElementById("navCartCount");
+  if (navCount) navCount.textContent = unidades > 0 ? unidades : "";
+
+  document.getElementById("cartUnits").textContent = unidades;
+  document.getElementById("cartSend").disabled = cart.length === 0;
+  document.getElementById("cartClear").disabled = cart.length === 0;
+
+  if (cart.length === 0) {
+    itemsContainer.innerHTML = `<p class="cart-empty">Tu carrito está vacío</p>`;
+    return;
+  }
+
+  itemsContainer.innerHTML = cart.map((item, index) => `
+    <div class="cart-item">
+      <img src="${item.imagen}" alt="${item.nombre}">
+      <div class="cart-item-info">
+        <h4>${item.nombre}</h4>
+        <span class="cart-item-medida">Medida: ${item.medida}</span>
+        <div class="cart-item-qty">
+          <button type="button" data-action="menos" data-index="${index}">-</button>
+          <span>${item.cantidad}</span>
+          <button type="button" data-action="mas" data-index="${index}">+</button>
+        </div>
+      </div>
+      <div class="cart-item-right">
+        <button type="button" class="cart-item-remove" data-action="eliminar" data-index="${index}">Eliminar</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function openCart() {
+  const drawer = document.getElementById("cartDrawer");
+  if (!drawer) return;
+
+  drawer.classList.add("open");
+  document.getElementById("cartOverlay").classList.add("open");
+  document.body.classList.add("cart-open");
+}
+
+function closeCart() {
+  const drawer = document.getElementById("cartDrawer");
+  if (!drawer) return;
+
+  drawer.classList.remove("open");
+  document.getElementById("cartOverlay").classList.remove("open");
+  document.body.classList.remove("cart-open");
+}
+
+function sendCartToWhatsApp() {
+  if (cart.length === 0) return;
+
+  const lineas = cart.map((item, i) =>
+    `${i + 1}) ${item.nombre} – Medida: ${item.medida} – Cant: ${item.cantidad}`
+  );
+
+  const mensaje =
+`Hola, quiero consultar por el siguiente pedido:
+${lineas.join("\n")}`;
+
+  const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`;
+
+  window.open(url, "_blank");
+}
+
+document.addEventListener("click", (event) => {
+  const btn = event.target.closest("#cartItems button[data-action]");
+  if (!btn) return;
+
+  const index = parseInt(btn.dataset.index, 10);
+
+  if (btn.dataset.action === "mas") updateCartQty(index, 1);
+  if (btn.dataset.action === "menos") updateCartQty(index, -1);
+  if (btn.dataset.action === "eliminar") removeFromCart(index);
+});
